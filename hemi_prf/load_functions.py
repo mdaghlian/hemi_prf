@@ -7,6 +7,7 @@ import yaml
 import pickle
 from hemi_prf.utils import *
 from dag_prf_utils.utils import dag_find_file_in_folder, dag_load_roi
+import scipy.io    
 
 path_to_code = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
 
@@ -25,16 +26,25 @@ def hprf_load_settings_file():
     with open(prf_settings_file) as f:
         prf_settings = yaml.safe_load(f)    
     return prf_settings
-    
+
 def hprf_load_dm_mat():
     '''
     Load the matlab design matrix
     '''
-    dm_file = opj(path_saved, 'aps_hemiamap.mat')
-    f =  h5py.File(dm_file, 'r')
-    for k,v in f.items():
-        dm = np.array(v)
-    dm = np.moveaxis(dm, 0, -1)  
+    # dm_file = opj(path_saved, 'aps_hemiamap.mat')
+    # f =  h5py.File(dm_file, 'r')
+    # for k,v in f.items():
+    #     dm = np.array(v)
+    # dm = np.moveaxis(dm, 0, -1)  
+    
+    # *** FOR SCIPY FRIENDLY ***
+    # dm_file = opj(path_saved, 'aps_hemiamap_scipy_friendly.mat')
+    # dm = scipy.io.loadmat(dm_file)['ApFrm']
+
+    # *** FOR NUMPY SAVED VERSION ***
+    dm_file = opj(path_saved, 'aps_hemiamap.npy')
+    dm = np.load(dm_file)
+
     return dm      
 
 def hprf_load_prfpy_stim():

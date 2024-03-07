@@ -34,6 +34,7 @@ def main(argv):
 
     Args (optional):
         --sub               subject number
+        --ses               session number
         --n_jobs <n_jobs>   number of jobs to run in parallel
         --fit_hrf True      whether to fit the HRF or not, False if mrVista HRF is used
         --grid_nr <grid_nr> which grid to use & number...           
@@ -58,9 +59,10 @@ qsub -q short.q@jupiter -pe smp $nr_jobs -wd $PWD -N $job_name -o $job_name.txt 
     constraint_type = fit_settings['constraint_type']
     grid_nr = fit_settings['grid_nr']
     skip_iter = fit_settings['skip_iter']
+    detrend = int(0)
 
     try:
-        opts = getopt.getopt(argv,"h:s:",["sub=", "n_jobs=","roi_fit=", "fit_hrf=", "grid_nr=", "detrend=", "tc", "bgfs", "skip_iter"])[0]
+        opts = getopt.getopt(argv,"h:s:",["sub=", "ses=", "n_jobs=","roi_fit=", "fit_hrf=", "grid_nr=", "detrend=", "tc", "bgfs", "skip_iter"])[0]
     except getopt.GetoptError:
         print(main.__doc__)
         sys.exit(2)    
@@ -70,8 +72,10 @@ qsub -q short.q@jupiter -pe smp $nr_jobs -wd $PWD -N $job_name -o $job_name.txt 
             print(main.__doc__)
             sys.exit()
 
-        elif opt in ("s", "--sub"):
-            sub = f'sub-{arg}'        
+        elif opt in ("--sub"):
+            sub = dag_hyphen_parse('sub', arg)
+        elif opt in ("--ses"):
+            ses = dag_hyphen_parse('ses', arg)            
         elif opt in ("--n_jobs"):
             n_jobs = int(arg)
         elif opt in ("--fit_hrf"):
@@ -111,6 +115,16 @@ qsub -q short.q@jupiter -pe smp $nr_jobs -wd $PWD -N $job_name -o $job_name.txt 
     if not os.path.exists(sub_prf_dir):
         os.makedirs(sub_prf_dir)    
 
+    # Get ready to save everything:
+    # make save name saying what we did
+    if fit_hrf:
+        hrf_str = 'fit'
+    else:
+        hrf_str = 'no'    
+    
+    iter_prf_name = f'{sub}_{ses}_task-prf_model-gauss_hrf-{hrf_str}_roi-{roi_fit}_detrend-{detrend}_stage-iter-{constraint_type}.pkl'
+    grid_prf_name = f'{sub}_{ses}_task-prf_model-gauss_hrf-{hrf_str}_roi-{roi_fit}_detrend-{detrend}_stage-grid.pkl'
+
     # Load the timeseries 
     # [1] Load the data:
     # -> is it in the whole_brain_ts folder?
@@ -128,17 +142,16 @@ qsub -q short.q@jupiter -pe smp $nr_jobs -wd $PWD -N $job_name -o $job_name.txt 
 
     # Setup bounds:
     bounds = {
-        'x' : (-1.5*fit_settings['max_ecc'], 1.5*fit_settings['max_ecc']),          # x bound
-        'y' : (-1.5*fit_settings['max_ecc'], 1.5*fit_settings['max_ecc']),          # y bound
-        'size_1' : (1e-1, fit_settings['max_ecc']*3),                             # prf size bounds
-        'amp_1' : (fit_settings['prf_ampl'][0],fit_settings['prf_ampl'][1]),      # prf amplitude
-        'bold_baseline' : (fit_settings['bold_bsl'][0],fit_settings['bold_bsl'][1]),      # bold baseline (fixed)
-        'hrf_1' : (fit_settings['hrf']['deriv_bound'][0], fit_settings['hrf']['deriv_bound'][1]), # hrf_1 bound
-        'hrf_2' : (fit_settings['hrf']['disp_bound'][0],  fit_settings['hrf']['disp_bound'][1]), # hrf_2 bound
+        'x'             : (-1.5*fit_settings['max_ecc'], 1.5*fit_settings['max_ecc']),          # x bound
+        'y'             : (-1.5*fit_settings['max_ecc'], 1.5*fit_settings['max_ecc']),          # y bound
+        'size_1'        : (1e-1, fit_settings['max_ecc']*3),                             # prf size bounds
+        'amp_1'         : (fit_settings['gauss_bounds']['amp_1'][0],fit_settings['gauss_bounds']['amp_1'][1]),      # prf amplitude
+        'bold_baseline' : (fit_settings['gauss_bounds']['bold_baseline'][0],fit_settings['gauss_bounds']['bold_baseline'][1]),      # bold baseline (fixed)
+        'hrf_1'         : (fit_settings['hrf']['deriv_bound'][0], fit_settings['hrf']['deriv_bound'][1]), # hrf_1 bound
+        'hrf_2'         : (fit_settings['hrf']['disp_bound'][0],  fit_settings['hrf']['disp_bound'][1]), # hrf_2 bound
     }
     # -> & grid bounds
-    gauss_grid_bounds = [[fit_settings['prf_ampl'][0],fit_settings['prf_ampl'][1]]] 
-
+    gauss_grid_bounds = [fit_settings['gauss_bounds']['amp_1']]  # bound on amplitude during grid fitting
 
     # [2] Setup grids:
     # -> grids
@@ -164,6 +177,8 @@ qsub -q short.q@jupiter -pe smp $nr_jobs -wd $PWD -N $job_name -o $job_name.txt 
         # Override the HRF
         hrf_1_grid = None
         hrf_2_grid = None
+        hrf_1_val = fit_settings['hrf']['pars'][1]
+        hrf_2_val = fit_settings['hrf']['pars'][2]
         # -> &  bounds
         bounds_list = [
             bounds['x'],
@@ -171,19 +186,10 @@ qsub -q short.q@jupiter -pe smp $nr_jobs -wd $PWD -N $job_name -o $job_name.txt 
             bounds['size_1'],
             bounds['amp_1'],   
             bounds['bold_baseline'],   
-            (1,1),      
-            (0,0),               
+            (hrf_1_val,hrf_1_val),      
+            (hrf_2_val,hrf_2_val),      
         ]
 
-    # Get ready to save everything:
-    # make save name saying what we did
-    if fit_hrf:
-        hrf_str = 'fit'
-    else:
-        hrf_str = 'no'    
-    
-    iter_prf_name = f'{sub}_{ses}_task-prf_model-gauss_hrf-{hrf_str}_roi-{roi_fit}_detrend-{detrend}_stage-iter-{constraint_type}.pkl'
-    grid_prf_name = f'{sub}_{ses}_task-prf_model-gauss_hrf-{hrf_str}_roi-{roi_fit}_detrend-{detrend}_stage-grid.pkl'
     
 
     # Make the prfpy model
